@@ -70,7 +70,9 @@ ggplot(data = elec.total) +
   ylab("Generation (gigawatt-hours)")
 
 ggplot(data = elec.sources) + 
-  geom_path(mapping = aes(x = elec.sources$YYYYMMDD, y = elec.sources$gwh, color = elec.sources$Description),
+  geom_path(mapping = aes(x = elec.sources$YYYYMMDD,
+                          y = elec.sources$gwh,
+                          color = elec.sources$Description),
             na.rm = TRUE) +
   ggtitle(label = "U.S. Electricity Generation 1973-2017 by Source") +
   xlab("Year") +
