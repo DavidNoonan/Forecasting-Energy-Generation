@@ -1,4 +1,5 @@
 #Forecasting solar energy, wind energy, and total electricity generation with an ARIMA model
+#This script contains the data preparation we use for the analysis. (replicated in the notebook)
 library(tidyverse)
 library(lubridate)
 

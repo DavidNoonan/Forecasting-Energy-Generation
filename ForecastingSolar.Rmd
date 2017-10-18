@@ -1,18 +1,21 @@
 ---
-title: "A Forecast of U.S. Solar Energy Generation with ARIMA"
+title: "A Forecast of U.S. Solar Energy Generation"
 author: "David Noonan"
+date: "`r Sys.Date()`"
 output:
-  html_document: default
-  html_notebook: default
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
 ---
 
-This is a timeseries analysis of U.S. Energy generation. The data is from the U.S. Energy Information Administration. Here we will use the data to build an ARIMA model for solar electricity generation, and build a forecast of future generation.
+This is a timeseries analysis of U.S. solar Energy generation. The data is from the U.S. Energy Information Administration, consisting of monthly totals from 1973 to June 2017. Here we will fit an ARIMA model for solar electricity generation, and make a 12-month forecast of future energy production.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #load packages
 library(tidyverse) #Tidyverse + lubridate for data manipulation
-library(lubridate)
+library(lubridate) #package for handling time data
 library(tm) #text mining package
+library(astsa) 
 ```
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
@@ -80,21 +83,24 @@ sourcesplot <- ggplot(data = elec.sources) +
                           y = elec.sources$gwh,
                           color = elec.sources$Description),
             na.rm = TRUE,
-            size = 1) +
+            size = .7) +
   ggtitle(label = "U.S. Electricity Generation 1973-2017 by Source") +
   xlab("Year") +
-  ylab("Generation (gigawatt-hours)")
+  ylab("Generation (gigawatt-hours)") +
+  ggthemes::theme_tufte()
 
 sourcesplot + labs(color = "Source")
 ```
 
-We see that Solar energy is a small fraction of the total energy production. It is however experiencing steady growth, as is wind. We take a closer look below:
+We see that Solar energy is a small fraction of the total energy production. Despite this, it's experiencing exponential growth along with wind energy. We take a closer look below:
 
-```{r, echo=FALSE, fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+```{r, echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
 
+#create subset dataframe containing only wind and solar, from 1990+
 elec.solarwind <- filter(elec.sources,
                          Description %in% c("Solar", "Wind"),
-                         is.na(gwh) == FALSE
+                         is.na(gwh) == FALSE,
+                         YYYYMMDD >= as.Date("1990-01-01")
 )
 #plot generation sources over time
 solarwindplot <- ggplot(data = elec.solarwind) + 
@@ -102,12 +108,77 @@ solarwindplot <- ggplot(data = elec.solarwind) +
                           y = elec.solarwind$gwh,
                           color = elec.solarwind$Description),
             na.rm = TRUE,
-            size = 1) +
-  ggtitle(label = "U.S. Solar/Wind Generation 1973-2017 by Source") +
+            size = .7) +
+  ggtitle(label = "U.S. Solar and Wind Generation 1990-2017") +
   xlab("Year") +
-  ylab("Generation (gigawatt-hours)")
+  ylab("Generation (gigawatt-hours)") +
+  ggthemes::theme_tufte()
 
 solarwindplot + labs(color = "Source")
 ```
 
-Both sources appear to have exponential growth beginning about year 2000 for wind and 2010 for solar.
+Both sources appear to have exponential growth, beginning about year 2000 for wind and 2010 for solar. Since solar begins its growth phase at about 2010, we will focus on that time frame to build a model.  
+Since the growth is exponential, we will look at a log transformation of growth. Below is a plot of log transformed solar generation:  
+  
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+elec.solar <- filter(elec.solarwind,
+                     Description == "Solar",
+                     YYYYMMDD >= as.Date("2010-01-01")
+) %>%
+  mutate(loggwh = log(gwh)
+)
+
+#plot generation sources over time
+
+logsolarplot <- ggplot(data = elec.solar) + 
+  geom_path(mapping = aes(x = elec.solar$YYYYMMDD,
+                          y = elec.solar$loggwh,
+                          color = Description),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = .7) +
+  ggtitle(label = "U.S. Solar Generation (log transformed) 2010-2017") +
+  xlab("Year") +
+  ylab("Generation log(gigawatt-hours)") +
+  ggthemes::theme_tufte()
+
+logsolarplot + labs(color = "Source")
+
+```
+
+What we see here is a remarkably constant trend, with a consistent seasonal component. We will need to remove this trend to build an ARIMA model, because ARIMA models assume a stationary process (the mean and variance do not change over time). This can be done with differencing, subtracting the previous value from each observation. Below is a plot of the differenced series:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#remove first row to match indices of differenced values
+elec.diffsolar <- elec.solar[-1,]
+
+#add differenced values
+elec.diffsolar$diffsolar <- diff(elec.solar$loggwh)
+
+difflogsolarplot <- ggplot(data = elec.diffsolar) + 
+  geom_path(mapping = aes(x = elec.diffsolar$YYYYMMDD,
+                          y = elec.diffsolar$diffsolar,
+                          color = Description),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = .7) +
+  ggtitle(label = "U.S. Solar Generation (differenced log transform) 2010-2017") +
+  xlab("Year") +
+  ylab("Generation log(gigawatt-hours)") +
+  ggthemes::theme_tufte()
+
+difflogsolarplot + labs(color = "Source")
+```
+
+The result appears to be a stationary series. We can begin fitting a model. Our first step in model building is to look at the auto-correlation and partial-auto-correlation plots of our dataset to get an idea of the model parameters we should use:  
+  
+  
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#change graphical parameters to show less white space
+invisible((acfpar <- par(mfrow = c(2,1), mar = c(2,4,1,2), xlab = NA)))
+#acf plot
+acf(elec.diffsolar$diffsolar, xlab = NA, main = NA, lag.max = 30)
+#pacf plot
+pacf(elec.diffsolar$diffsolar, main = NA, lag.max = 30)
+```
+
