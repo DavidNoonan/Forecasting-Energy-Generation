@@ -1,0 +1,113 @@
+---
+title: "A Forecast of U.S. Solar Energy Generation with ARIMA"
+author: "David Noonan"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+This is a timeseries analysis of U.S. Energy generation. The data is from the U.S. Energy Information Administration. Here we will use the data to build an ARIMA model for solar electricity generation, and build a forecast of future generation.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#load packages
+library(tidyverse) #Tidyverse + lubridate for data manipulation
+library(lubridate)
+library(tm) #text mining package
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#obtain data from eia.gov website. This dataset contains electricity generation
+#monthly for the total U.S., categorized by source.
+
+elec.raw <- read.csv(file = "https://www.eia.gov/totalenergy/data/browser/csv.php?tbl=T01.02",
+                     stringsAsFactors=FALSE)
+
+
+str(elec.raw) #look at structure of elec.raw dataframe
+```
+
+The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Untis. We convert the units to gigawatt-hours, more appropriate for electricity.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#examine energy sources
+(elec.sources <- unique(elec.raw$Description))
+
+#remove unecessary words from sources
+elec.raw$Description <- removeWords(elec.raw$Description,c(" Production", " Energy"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#look at the range of dates
+range(elec.raw$YYYYMM)
+
+#look at the range of values for generation
+range(elec.raw$Value)
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#find indices containing "Not Available"
+invisible(which(elec.raw$Value == "Not Available"))
+
+#find which descriptions are in the indices containing "not available"
+unique(elec.raw[which(elec.raw$Value == "Not Available"),5])
+```
+
+```{r, message=FALSE, include=FALSE}
+#Format the data
+
+qbtu.to.gigawatthours <- 293071.070172222215  # ratio of gigawatthours per quadrillion btus
+
+#unique sources of energy (totals of groups removed):
+sources <- unique(elec.raw$Description)[-c(5,12,13)]
+
+#create dataframe for seperate energy sources
+elec.sources <-   mutate(
+  elec.raw, gwh = as.numeric(Value)*qbtu.to.gigawatthours,  #convert btus to gigawatthours
+  YYYYMMDD = ymd(paste(YYYYMM, "01",sep = "")) #convert YYYYMM to date + first day of the month
+  ) %>% 
+  filter(Description %in% sources,  
+    is.na(YYYYMMDD) == FALSE) %>%
+  select(gwh,Description, YYYYMMDD)
+```
+
+Below is a plot of all the energy sources over time:
+
+```{r, echo=FALSE, fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+#plot generation sources over time
+sourcesplot <- ggplot(data = elec.sources) + 
+  geom_path(mapping = aes(x = elec.sources$YYYYMMDD,
+                          y = elec.sources$gwh,
+                          color = elec.sources$Description),
+            na.rm = TRUE,
+            size = 1) +
+  ggtitle(label = "U.S. Electricity Generation 1973-2017 by Source") +
+  xlab("Year") +
+  ylab("Generation (gigawatt-hours)")
+
+sourcesplot + labs(color = "Source")
+```
+
+We see that Solar energy is a small fraction of the total energy production. It is however experiencing steady growth, as is wind. We take a closer look below:
+
+```{r, echo=FALSE, fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+
+elec.solarwind <- filter(elec.sources,
+                         Description %in% c("Solar", "Wind"),
+                         is.na(gwh) == FALSE
+)
+#plot generation sources over time
+solarwindplot <- ggplot(data = elec.solarwind) + 
+  geom_path(mapping = aes(x = elec.solarwind$YYYYMMDD,
+                          y = elec.solarwind$gwh,
+                          color = elec.solarwind$Description),
+            na.rm = TRUE,
+            size = 1) +
+  ggtitle(label = "U.S. Solar/Wind Generation 1973-2017 by Source") +
+  xlab("Year") +
+  ylab("Generation (gigawatt-hours)")
+
+solarwindplot + labs(color = "Source")
+```
+
+Both sources appear to have exponential growth beginning about year 2000 for wind and 2010 for solar.
