@@ -15,7 +15,7 @@ This is a timeseries analysis of U.S. solar Energy generation. The data is from 
 library(tidyverse) #Tidyverse + lubridate for data manipulation
 library(lubridate) #package for handling time data
 library(tm) #text mining package
-library(astsa) 
+library(astsa) #time series modeling package
 ```
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
@@ -118,9 +118,11 @@ solarwindplot + labs(color = "Source")
 ```
 
 Both sources appear to have exponential growth, beginning about year 2000 for wind and 2010 for solar. Since solar begins its growth phase at about 2010, we will focus on that time frame to build a model.  
-Since the growth is exponential, we will look at a log transformation of growth. Below is a plot of log transformed solar generation:  
+Since the change in generation is exponential, we will model the growth rate with a log transformation. Below is a plot of log transformed solar generation:  
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+#filter a subset containing only solar generation, starting in 2010
 elec.solar <- filter(elec.solarwind,
                      Description == "Solar",
                      YYYYMMDD >= as.Date("2010-01-01")
@@ -174,11 +176,169 @@ The result appears to be a stationary series. We can begin fitting a model. Our 
   
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#create timeseries object of solar generation to interface with ASTSA functions
+solarts <- ts(elec.solar$gwh, start = c(2010,1), end = c(2017,6), frequency = 12)
+
+#log and diff transformation of the timeseries object above
+logdiffsolarts <- diff(log(solarts))
+
+
 #change graphical parameters to show less white space
 invisible((acfpar <- par(mfrow = c(2,1), mar = c(2,4,1,2), xlab = NA)))
-#acf plot
-acf(elec.diffsolar$diffsolar, xlab = NA, main = NA, lag.max = 30)
-#pacf plot
-pacf(elec.diffsolar$diffsolar, main = NA, lag.max = 30)
+#autocorrelation function plot
+acf(logdiffsolarts, xlab = NA, main = NA, lag.max = 50)
+#partial autocorrelation plot
+pacf(logdiffsolarts, main = NA, lag.max = 50)
 ```
+
+  
+  In the above ACF plot, we see a pattern of strong peaks at lag years 1, 2, 3... slowly decaying. This may indicate some seasonal nonstationarity, which could be fixed with seasonal differencing. We will consider this in subsequent models.  
+  In the PACF plot, we see a strong autocorrelation at the 12 month lag (1.0 on the plot), which cuts off, indicating a seasonal ARIMA model of order P = 1 may be helpful.  Below, we fit an ARIMA model with order P = 1, with differencing D = 0 and d = 1:  
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#create log transformation of solar time series object
+logsolar <- log(solarts)
+#fit ARIMA model order d = 1, D = 0, P = 1
+fit1 <- sarima(logsolar, 0,1,0,P = 1, D = 0, Q = 0, S = 12,details = FALSE)
+```
+```{r, echo=FALSE, fig.height=2, fig.width=10, message=FALSE, warning=FALSE}
+#graphical parameters to reduce white space
+invisible((acfpar <- par(mfrow = c(1,1), mar = c(2,4,1,2))))
+
+#pacf plot of residuals of model "fit1"
+pacf(fit1$fit$residuals, lag.max = 50, xlab = NA)
+```
+
+
+The diagnostic plots are encouraging.  The residual time plot does not show any obvious patterns, and there are no outliers greater than 3 standard deviations from zero. The residual distribution in the Q-Q plot is very close to normal, but with heavy tails. Two concerns are the residual ACF plot, which shows autocorrelation in the 12th lag, indicating a seasonal moving average component of order Q = 1 may be helpful. The PACF plot shows a peak at lag 12, so we may also consider another seasonal auto-regressive order like P = 2. Finally, the p-values of the Ljung-Box statistics indicate some departure from the independence assumption of the residuals.  
+
+Next, we will compare a series of models using information criterea:  
+Fit 3: ARIMA$(0,1,0) \times (1,0,1)_{12}$  
+Fit 4: ARIMA$(0,1,0) \times (2,0,1)_{12}$  
+Fit 5: ARIMA$(0,1,0) \times (1,1,1)_{12}$  
+Fit 6: ARIMA$(0,1,0) \times (2,1,1)_{12}$  
+Fit 7: ARIMA$(1,1,0) \times (1,0,1)_{12}$  
+Fit 8: ARIMA$(1,1,1) \times (1,0,1)_{12}$  
+Fit 9: ARIMA$(0,1,1) \times (1,0,1)_{12}$  
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#fit arima model candidates :
+fit3 <- sarima(logsolar, 0,1,0,P = 1, D = 0, Q = 1, S = 12,details = FALSE)
+fit4 <- sarima(logsolar, 0,1,0,P = 2, D = 0, Q = 1, S = 12,details = FALSE)
+fit5 <- sarima(logsolar, 0,1,0,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+fit6 <- sarima(logsolar, 0,1,0,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+fit7 <- sarima(logsolar, 1,1,0,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+fit8 <- sarima(logsolar, 1,1,1,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+fit9 <- sarima(logsolar, 0,1,1,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#create vector of AICs
+fitaics <- c(fit3$AIC, fit4$AIC, fit5$AIC, fit6$AIC, fit7$AIC, fit8$AIC, fit9$AIC)
+fitnames <- c("fit 3", "fit 4", "fit 5", "fit 6", "fit 7", "fit 8", "fit 9")
+dotchart(fitaics, labels = fitnames, main = "Model AIC comparison", ylab = "ARIMA Model", xlab = "AIC" )
+```
+
+We see in the dot chart above that fit 9 has the smallest AIC value. Fit 9 is ARIMA$(0,1,1) \times (1,1,1)_{12}$.  Below is a plot of its diagnostics:  
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+fit5 <- sarima(logsolar, 0,1,1,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
+```
+
+The diagnostic plots look reasonable for this model, with the exception of two outliers among the standardized residuals. We will move forward with this model. As a diagnostic, below is a 12 month forecast, using the last 12 months as hold out.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#make holdout indices
+holdout <- (length(logsolar) - 11):length(logsolar)
+
+#create timeseries object with hold out year
+logsolarholdout <- logsolar[-holdout]
+
+#forecast
+holdforc <- sarima.for(logsolarholdout, n.ahead = 12, p =0, d = 1, q = 1,  P = 1, 
+                   D = 1, Q = 1, S = 12)
+
+#build dataframe of forecast with holdout
+holdforcdf <- data.frame(prediction = c(rep(NA, 78),
+                                        exp(holdforc$pred)),
+                                        date = elec.solar$YYYYMMDD
+)
+
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#plot generation sources over time
+logsolarplot <- ggplot(data = elec.solar) + 
+  geom_path(mapping = aes(x = elec.solar$YYYYMMDD,
+                          y = elec.solar$gwh,
+                          color = "Black"),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = .7) +
+  ggtitle(label = "Forecast of Solar Energy Generation (holdout period)") +
+  xlab("Year") +
+  ylab("Generation (gigawatt-hours)") +
+
+  #holdoutpred <- ggplot(data = holdforcdf) +
+ 
+  geom_path(mapping = aes(x = holdforcdf$date,
+                          y = holdforcdf$prediction,
+                          color = "Red"),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = 1)
+
+logsolarplot + ggthemes::theme_tufte()
+```
+  
+We see the forecast does a fair job at predicting the actual solar energy production.  
+  
+For fun, we can extrapolate, and forecast the energy output 15 years in the future:
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#5-year forecast
+forc5 <- sarima.for(logsolar, n.ahead = 60, p =0, d = 1, q = 1,  P = 1, 
+                   D = 1, Q = 1, S = 12)
+
+#create vector of corresponding dates for the forecast
+forc5dates <- c(elec.solar$YYYYMMDD, seq(as.Date("2017-07-01"),
+                                          as.Date("2022-06-01"), by = "months"))
+
+#create dataframe for the 5 year forecast
+forc5df <- data.frame(prediction = c(rep(NA, length(elec.solar$gwh)),
+                                      exp(forc5$pred)),
+                       UL = c(rep(NA, length(elec.solar$gwh)),
+                                      exp(forc5$pred + qnorm(0.945)*forc5$se)),
+                       LL = c(rep(NA, length(elec.solar$gwh)),
+                                      exp(forc5$pred - qnorm(0.945)*forc5$se)),
+                       date = forc5dates,
+                       gwh = c(elec.solar$gwh,
+                               rep(NA, 60)
+                              )
+                       )
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#plot generation sources over time
+forecast15plot <- ggplot(data = forc5df) + 
+  geom_path(mapping = aes(x = forc5df$date,
+                          y = forc5df$gwh,
+                          color = "Black"),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = .7) +
+  ggtitle(label = "5 Year Forecast of Solar Energy Generation") +
+  xlab("Year") +
+  ylab("Generation (gigawatt-hours)") +
+
+  #holdoutpred <- ggplot(data = holdforcdf) +
+ 
+  geom_path(mapping = aes(x = forc5df$date,
+                          y = forc5df$prediction,
+                          color = "Red"),
+            na.rm = TRUE,
+            show.legend = FALSE,
+            size = 1)
+
+forecast15plot + ggthemes::theme_tufte()
+```
+
+
 
