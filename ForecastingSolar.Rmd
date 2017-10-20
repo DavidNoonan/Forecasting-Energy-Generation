@@ -216,9 +216,9 @@ Fit 3: ARIMA$(0,1,0) \times (1,0,1)_{12}$
 Fit 4: ARIMA$(0,1,0) \times (2,0,1)_{12}$  
 Fit 5: ARIMA$(0,1,0) \times (1,1,1)_{12}$  
 Fit 6: ARIMA$(0,1,0) \times (2,1,1)_{12}$  
-Fit 7: ARIMA$(1,1,0) \times (1,0,1)_{12}$  
-Fit 8: ARIMA$(1,1,1) \times (1,0,1)_{12}$  
-Fit 9: ARIMA$(0,1,1) \times (1,0,1)_{12}$  
+Fit 7: ARIMA$(1,1,0) \times (1,1,1)_{12}$  
+Fit 8: ARIMA$(1,1,1) \times (1,1,1)_{12}$  
+Fit 9: ARIMA$(0,1,1) \times (1,1,1)_{12}$  
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #fit arima model candidates :
