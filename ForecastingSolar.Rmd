@@ -29,7 +29,7 @@ elec.raw <- read.csv(file = "https://www.eia.gov/totalenergy/data/browser/csv.ph
 str(elec.raw) #look at structure of elec.raw dataframe
 ```
 
-The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Untis. We convert the units to gigawatt-hours, more appropriate for electricity.
+The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Units. We convert the units to gigawatt-hours, more appropriate for electricity.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #examine energy sources
@@ -265,10 +265,10 @@ holdforcdf <- data.frame(prediction = c(rep(NA, 78),
 ```
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 #plot generation sources over time
-logsolarplot <- ggplot(data = elec.solar) + 
+logsolarplot <- ggplot(data = elec.solar, aes(x = holdforcdf$date)) + 
   geom_path(mapping = aes(x = elec.solar$YYYYMMDD,
                           y = elec.solar$gwh,
-                          color = "Black"),
+                          color = "Actual"),
             na.rm = TRUE,
             show.legend = FALSE,
             size = .7) +
@@ -280,17 +280,17 @@ logsolarplot <- ggplot(data = elec.solar) +
  
   geom_path(mapping = aes(x = holdforcdf$date,
                           y = holdforcdf$prediction,
-                          color = "Red"),
+                          color = "Predicted"),
             na.rm = TRUE,
-            show.legend = FALSE,
-            size = 1)
+            size = 1) +
+  geom_vline(xintercept=as.numeric(as.Date("2016-06-01")), linetype=2)
 
-logsolarplot + ggthemes::theme_tufte()
+logsolarplot + labs(color = "") + ggthemes::theme_tufte()
 ```
   
 We see the forecast does a fair job at predicting the actual solar energy production.  
   
-For fun, we can extrapolate, and forecast the energy output 15 years in the future:
+Now we can can extrapolate to the actual future, and forecast the energy output 5 years out from June 2017:
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #5-year forecast
@@ -301,7 +301,7 @@ forc5 <- sarima.for(logsolar, n.ahead = 60, p =0, d = 1, q = 1,  P = 1,
 forc5dates <- c(elec.solar$YYYYMMDD, seq(as.Date("2017-07-01"),
                                           as.Date("2022-06-01"), by = "months"))
 
-#create dataframe for the 5 year forecast
+#create dataframe for the 5 year forecast with 89% confidence intervals
 forc5df <- data.frame(prediction = c(rep(NA, length(elec.solar$gwh)),
                                       exp(forc5$pred)),
                        UL = c(rep(NA, length(elec.solar$gwh)),
@@ -317,10 +317,10 @@ forc5df <- data.frame(prediction = c(rep(NA, length(elec.solar$gwh)),
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 #plot generation sources over time
-forecast15plot <- ggplot(data = forc5df) + 
+forecast5plot <- ggplot(data = forc5df) + 
   geom_path(mapping = aes(x = forc5df$date,
                           y = forc5df$gwh,
-                          color = "Black"),
+                          color = "Actual"),
             na.rm = TRUE,
             show.legend = FALSE,
             size = .7) +
@@ -332,13 +332,30 @@ forecast15plot <- ggplot(data = forc5df) +
  
   geom_path(mapping = aes(x = forc5df$date,
                           y = forc5df$prediction,
-                          color = "Red"),
+                          color = "Predicted"),
             na.rm = TRUE,
-            show.legend = FALSE,
-            size = 1)
+            size = 1) +
+  geom_vline(xintercept=as.numeric(as.Date("2017-06-01")), linetype=2) + 
+  geom_ribbon(aes(x = date, ymin=LL, ymax=UL), fill="grey", alpha=0.75)
 
-forecast15plot + ggthemes::theme_tufte()
+forecast5plot + labs(color = "") + ggthemes::theme_tufte()
 ```
 
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#89% confidence interval for solar generation year 2022
+(conf2022 <- c(forc5df$LL[length(forc5df$date)], forc5df$UL[length(forc5df$date)]))
 
+#89% confidence interval for solar generation year 2018
+(conf2018 <- c(forc5df$LL[which(forc5df$date == as.Date("2018-06-01"))], forc5df$UL[which(forc5df$date == as.Date("2018-06-01"))]))
 
+#generation in June 2017
+june2017solar <- elec.solar$gwh[length(elec.solar$YYYYMMDD)]
+
+#percent difference in 2022
+(percent_diff_2022 <- (conf2022/june2017solar - 1) * 100)
+
+#percent difference in 2018
+(percent_diff_2018 <- (conf2018/june2017solar - 1) * 100)
+```
+
+Our ARIMA model seems to provide a believable forecast for the growth of solar energy generation. By June of the year 2022, the model predicts that the energy generation will be between 78341.97 and 203573.46 gigawatt-hours, which is a 200 to 687 percent increase. In 2018, one year out from the end of the data, the model predicts solar generation at 29448.10 to 42313.16 gigawatt-hours, which is a 13.8 to 63.6 percent increase from a year before.
