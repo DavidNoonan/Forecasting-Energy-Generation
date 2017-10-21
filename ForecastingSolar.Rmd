@@ -7,6 +7,8 @@ output:
     theme: architect
     highlight: github
 ---
+[GitHub Page](https://github.com/DavidNoonan/Forecasting-Energy-Generation)  
+  
 
 This is a timeseries analysis of U.S. solar Energy generation. The data is from the U.S. Energy Information Administration, consisting of monthly totals from 1973 to June 2017. Here we will fit an ARIMA model for solar electricity generation, and make a 12-month forecast of future energy production.
 
@@ -200,7 +202,7 @@ logsolar <- log(solarts)
 #fit ARIMA model order d = 1, D = 0, P = 1
 fit1 <- sarima(logsolar, 0,1,0,P = 1, D = 0, Q = 0, S = 12,details = FALSE)
 ```
-```{r, echo=FALSE, fig.height=2, fig.width=10, message=FALSE, warning=FALSE}
+```{r, echo=FALSE, fig.height=2, fig.width=7, message=FALSE, warning=FALSE}
 #graphical parameters to reduce white space
 invisible((acfpar <- par(mfrow = c(1,1), mar = c(2,4,1,2))))
 
