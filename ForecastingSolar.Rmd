@@ -7,10 +7,10 @@ output:
     theme: architect
     highlight: github
 ---
-[GitHub Page](https://github.com/DavidNoonan/Forecasting-Energy-Generation)  
+[Made with R markdown.  See the code on my GitHub Page](https://github.com/DavidNoonan/Forecasting-Energy-Generation)  
   
 
-This is a timeseries analysis of U.S. solar Energy generation. The data is from the U.S. Energy Information Administration, consisting of monthly totals from 1973 to June 2017. Here we will fit an ARIMA model for solar electricity generation, and make a 12-month forecast of future energy production.
+This is a timeseries analysis of the total U.S. solar energy generation. The data is from the U.S. Energy Information Administration, consisting of monthly totals from 1973 to June 2017. Here we will fit an ARIMA model, and make 12-month and 5-year forecasts.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #load packages
@@ -31,7 +31,7 @@ elec.raw <- read.csv(file = "https://www.eia.gov/totalenergy/data/browser/csv.ph
 str(elec.raw) #look at structure of elec.raw dataframe
 ```
 
-The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Units. We convert the units to gigawatt-hours, more appropriate for electricity.
+The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Units. I converted the units to gigawatt-hours, which are more appropriate for electricity.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #examine energy sources
@@ -78,7 +78,7 @@ elec.sources <-   mutate(
 
 Below is a plot of all the energy sources over time:
 
-```{r, echo=FALSE, fig.height=4, fig.width=10, message=FALSE, warning=FALSE}
+```{r, echo=FALSE, fig.height=5, fig.width=12, message=FALSE, warning=FALSE}
 #plot generation sources over time
 sourcesplot <- ggplot(data = elec.sources) + 
   geom_path(mapping = aes(x = elec.sources$YYYYMMDD,
@@ -94,7 +94,7 @@ sourcesplot <- ggplot(data = elec.sources) +
 sourcesplot + labs(color = "Source")
 ```
 
-We see that Solar energy is a small fraction of the total energy production. Despite this, it's experiencing exponential growth along with wind energy. We take a closer look below:
+If we look carefully, we see solar energy is one of the barely visible squiggles on the bottom right of the plot. It is dwarfed by the major energy sources: natural gas, coal, and oil. Nevertheless, solar is experiencing exponential growth. We take a closer look below, along with wind energy, another renewable source with a similar growth pattern:
 
 ```{r, echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
 
@@ -119,8 +119,10 @@ solarwindplot <- ggplot(data = elec.solarwind) +
 solarwindplot + labs(color = "Source")
 ```
 
-Both sources appear to have exponential growth, beginning about year 2000 for wind and 2010 for solar. Since solar begins its growth phase at about 2010, we will focus on that time frame to build a model.  
-Since the change in generation is exponential, we will model the growth rate with a log transformation. Below is a plot of log transformed solar generation:  
+Both sources are growing exponentially, beginning roughly in year 2000 for wind and 2010 for solar. Since solar begins its growth phase at about 2010, we will focus on that time frame to build a model.
+  
+  
+We make this easier to model using a logarithmic transformation, which means that we will model the growth rate. Below is a plot of the log transformed solar generation:  
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -150,7 +152,7 @@ logsolarplot + labs(color = "Source")
 
 ```
 
-What we see here is a remarkably constant trend, with a consistent seasonal component. We will need to remove this trend to build an ARIMA model, because ARIMA models assume a stationary process (the mean and variance do not change over time). This can be done with differencing, subtracting the previous value from each observation. Below is a plot of the differenced series:
+What we see here is a remarkably constant trend that oscillates with the seasons. We need to remove this trend to build an ARIMA model, because ARIMA models assume a stationary process (the mean and variance do not change over time). We can do this with differencing, a transformation where the previous value is subtracted from each observation. Below is the differenced series:
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 #remove first row to match indices of differenced values
@@ -174,7 +176,7 @@ difflogsolarplot <- ggplot(data = elec.diffsolar) +
 difflogsolarplot + labs(color = "Source")
 ```
 
-The result appears to be a stationary series. We can begin fitting a model. Our first step in model building is to look at the auto-correlation and partial-auto-correlation plots of our dataset to get an idea of the model parameters we should use:  
+Differencing did a great job of removing the trend. Now that we have what looks like a stationary process, we can begin fitting a model. Our first step is looking at auto-correlation (ACF) and partial-auto-correlation (PACF) plots to get an idea of candidate model parameters we can use:  
   
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
