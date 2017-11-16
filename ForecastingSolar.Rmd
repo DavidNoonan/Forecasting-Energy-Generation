@@ -7,10 +7,14 @@ output:
     theme: architect
     highlight: github
 ---
-[Made with R markdown.  See the code on my GitHub Page](https://github.com/DavidNoonan/Forecasting-Energy-Generation)  
-  
+<center>[Made with R Markdown.  See the code on my GitHub Page](https://github.com/DavidNoonan/Forecasting-Energy-Generation)</center> 
 
-This is a timeseries analysis of the total U.S. solar energy generation. The data is from the U.S. Energy Information Administration, consisting of monthly totals from 1973 to June 2017. Here we will fit an ARIMA model, and make 12-month and 5-year forecasts.
+<br>
+
+This is a timeseries analysis of the total solar electricity generation in the U.S. based on data from the U.S. Energy Information Administration. 
+The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Units. I converted the units to gigawatt-hours, which I think is more common for electricity.
+
+My goal is to fit an ARIMA timeseries model, and make 12-month and 5-year forecasts. This isn't a rigorous study based on extensive domain knowledge. That would certainly help, but for now I am focusing on modeling. This is an exercise in building an ARIMA model. Before we dive into model building, here is a plot of all the other sources including solar, for some context.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #load packages
@@ -31,7 +35,6 @@ elec.raw <- read.csv(file = "https://www.eia.gov/totalenergy/data/browser/csv.ph
 str(elec.raw) #look at structure of elec.raw dataframe
 ```
 
-The data contains monthly totals from 1973-2017 by energy source, with units in quadrillions of British Thermal Units. I converted the units to gigawatt-hours, which are more appropriate for electricity.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #examine energy sources
@@ -76,9 +79,9 @@ elec.sources <-   mutate(
   select(gwh,Description, YYYYMMDD)
 ```
 
-Below is a plot of all the energy sources over time:
 
-```{r, echo=FALSE, fig.height=5, fig.width=12, message=FALSE, warning=FALSE}
+
+```{r fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 #plot generation sources over time
 sourcesplot <- ggplot(data = elec.sources) + 
   geom_path(mapping = aes(x = elec.sources$YYYYMMDD,
@@ -89,14 +92,19 @@ sourcesplot <- ggplot(data = elec.sources) +
   ggtitle(label = "U.S. Electricity Generation 1973-2017 by Source") +
   xlab("Year") +
   ylab("Generation (gigawatt-hours)") +
-  ggthemes::theme_tufte()
+  guides(colour = guide_legend(override.aes = list(size=3)))
+  
 
-sourcesplot + labs(color = "Source")
+totalplot <- sourcesplot + labs(color = "Source")
 ```
 
-If we look carefully, we see solar energy is one of the barely visible squiggles on the bottom right of the plot. It is dwarfed by the major energy sources: natural gas, coal, and oil. Nevertheless, solar is experiencing exponential growth. We take a closer look below, along with wind energy, another renewable source with a similar growth pattern:
+```{r echo=FALSE, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, paged.print=FALSE}
+totalplot + ggthemes::theme_tufte()
+```
 
-```{r, echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
+If we look carefully, solar energy is one of the smallest sources, shown as a line on the bottom right of the plot. It is dwarfed by the major energy sources: natural gas, coal, and oil. Nevertheless, solar is experiencing exponential growth. We take a closer look at solar and wind, two renewable sources, in the next plot.
+
+```{r fig.height=4, fig.width=8, message=FALSE, warning=FALSE, include=FALSE}
 
 #create subset dataframe containing only wind and solar, from 1990+
 elec.solarwind <- filter(elec.sources,
@@ -114,15 +122,20 @@ solarwindplot <- ggplot(data = elec.solarwind) +
   ggtitle(label = "U.S. Solar and Wind Generation 1990-2017") +
   xlab("Year") +
   ylab("Generation (gigawatt-hours)") +
-  ggthemes::theme_tufte()
+  guides(colour = guide_legend(override.aes = list(size=3))) + 
+  labs(color = "Source")
 
-solarwindplot + labs(color = "Source")
 ```
 
-Both sources are growing exponentially, beginning roughly in year 2000 for wind and 2010 for solar. Since solar begins its growth phase at about 2010, we will focus on that time frame to build a model.
+```{r echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+solarwindplot + ggthemes::theme_tufte()
+```
+
+
+Solar and Wind energy generation are growing exponentially. Wind energy begins its exponential growth in about year 2000, and solar begins its boom roughly in year 2010. This is great, but how much can we expect in 1 year, or 5 years? Maybe an ARIMA model can give a good guess.
   
   
-We make this easier to model using a logarithmic transformation, which means that we will model the growth rate. Below is a plot of the log transformed solar generation:  
+First we need to do some transformations on the data. The growth is exponential, which is hard to work with. We can make this easier by applying a logarithmic transformation. This means that we are modeling the growth *rate*, rather than growth directly. Below is a plot of the log transformed solar generation:  
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -152,7 +165,7 @@ logsolarplot + labs(color = "Source")
 
 ```
 
-What we see here is a remarkably constant trend that oscillates with the seasons. We need to remove this trend to build an ARIMA model, because ARIMA models assume a stationary process (the mean and variance do not change over time). We can do this with differencing, a transformation where the previous value is subtracted from each observation. Below is the differenced series:
+The result is a nice constant trend that oscillates with the seasons. We can't model this with ARIMA yet, because it has a trend. ARIMA models assume a "stationary process" (the mean and variance do not change over time). Fear not, we can remove the trend with another transformation--differencing, where the previous value is subtracted from each observation. This is reversible so long as we know the first observation. Below is the differenced series:
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 #remove first row to match indices of differenced values
@@ -176,7 +189,7 @@ difflogsolarplot <- ggplot(data = elec.diffsolar) +
 difflogsolarplot + labs(color = "Source")
 ```
 
-Differencing did a great job of removing the trend. Now that we have what looks like a stationary process, we can begin fitting a model. Our first step is looking at auto-correlation (ACF) and partial-auto-correlation (PACF) plots to get an idea of candidate model parameters we can use:  
+Now it looks like a stationary process, great for fitting ARIMA. To begin, We need to come up with candidate parameters. We can find those by looking at auto-correlation (ACF) and partial-auto-correlation (PACF) plots. The parameters in question are the auto-regressive (AR), moving average (MA), and seasonal parameters. For details on this, I refer to *Time Series Analysis and its Applications* by Robert H. Shumway and David S. Stoffer.  
   
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
@@ -196,8 +209,8 @@ pacf(logdiffsolarts, main = NA, lag.max = 50)
 ```
 
   
-  In the above ACF plot, we see a pattern of strong peaks at lag years 1, 2, 3... slowly decaying. This may indicate some seasonal nonstationarity, which could be fixed with seasonal differencing. We will consider this in subsequent models.  
-  In the PACF plot, we see a strong autocorrelation at the 12 month lag (1.0 on the plot), which cuts off, indicating a seasonal ARIMA model of order P = 1 may be helpful.  Below, we fit an ARIMA model with order P = 1, with differencing D = 0 and d = 1:  
+  In the above ACF plot, we see a pattern of strong peaks at lag years 1, 2, 3... slowly decaying. This may indicate some seasonal non-stationarity, which could be fixed with seasonal differencing. We will consider this in subsequent models.  
+  In the PACF plot, we see strong autocorrelation at the 12 month lag (1.0 on the plot), which cuts off, indicating a seasonal ARIMA model of order P = 1 may be helpful.  Below, we fit an ARIMA model with order P = 1, with differencing D = 0 and d = 1:  
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 #create log transformation of solar time series object
 logsolar <- log(solarts)
@@ -213,7 +226,7 @@ pacf(fit1$fit$residuals, lag.max = 50, xlab = NA)
 ```
 
 
-The diagnostic plots are encouraging.  The residual time plot does not show any obvious patterns, and there are no outliers greater than 3 standard deviations from zero. The residual distribution in the Q-Q plot is very close to normal, but with heavy tails. Two concerns are the residual ACF plot, which shows autocorrelation in the 12th lag, indicating a seasonal moving average component of order Q = 1 may be helpful. The PACF plot shows a peak at lag 12, so we may also consider another seasonal auto-regressive order like P = 2. Finally, the p-values of the Ljung-Box statistics indicate some departure from the independence assumption of the residuals.  
+The diagnostic plots are encouraging.  The residual time plot shows no obvious patterns, with no outliers greater than 3 standard deviations from zero. The residual distribution in the Q-Q plot is very close to normal, despite heavy tails. Two concerns are the residual ACF plot showing autocorrelation in the 12th lag, which indicates a seasonal moving average component of order Q = 1 may be helpful. The PACF plot shows a peak at lag 12, so we may also consider another seasonal auto-regressive order like P = 2. Finally, the p-values of the Ljung-Box statistics indicate some departure from the independence assumption of the residuals.  
 
 Next, we will compare a series of models using information criterea:  
 Fit 3: ARIMA$(0,1,0) \times (1,0,1)_{12}$  
@@ -247,7 +260,7 @@ We see in the dot chart above that fit 9 has the smallest AIC value. Fit 9 is AR
 fit5 <- sarima(logsolar, 0,1,1,P = 1, D = 1, Q = 1, S = 12,details = FALSE)
 ```
 
-The diagnostic plots look reasonable for this model, with the exception of two outliers among the standardized residuals. We will move forward with this model. As a diagnostic, below is a 12 month forecast, using the last 12 months as hold out.
+The diagnostic plots look reasonable for this model, with the exception of two outliers among the standardized residuals. With that kept in mind, We will move forward with this model because it looks good enough. As a diagnostic, below is a 12 month forecast of the mean, using the last 12 months as hold out.
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 #make holdout indices
@@ -257,7 +270,7 @@ holdout <- (length(logsolar) - 11):length(logsolar)
 logsolarholdout <- logsolar[-holdout]
 
 #forecast
-holdforc <- sarima.for(logsolarholdout, n.ahead = 12, p =0, d = 1, q = 1,  P = 1, 
+holdforc <- sarima.for(logsolarholdout, n.ahead = 13, p =0, d = 1, q = 1,  P = 1, 
                    D = 1, Q = 1, S = 12)
 
 #build dataframe of forecast with holdout
@@ -292,7 +305,7 @@ logsolarplot <- ggplot(data = elec.solar, aes(x = holdforcdf$date)) +
 logsolarplot + labs(color = "") + ggthemes::theme_tufte()
 ```
   
-We see the forecast does a fair job at predicting the actual solar energy production.  
+The model predicts the holdout period pretty well!  
   
 Now we can can extrapolate to the actual future, and forecast the energy output 5 years out from June 2017:
 
@@ -340,7 +353,8 @@ forecast5plot <- ggplot(data = forc5df) +
             na.rm = TRUE,
             size = 1) +
   geom_vline(xintercept=as.numeric(as.Date("2017-06-01")), linetype=2) + 
-  geom_ribbon(aes(x = date, ymin=LL, ymax=UL), fill="grey", alpha=0.75)
+  geom_ribbon(aes(x = date, ymin=LL, ymax=UL, fill = "89% conf."), alpha=0.75) +
+  scale_fill_manual("", values = "grey")
 
 forecast5plot + labs(color = "") + ggthemes::theme_tufte()
 ```
@@ -362,4 +376,10 @@ june2017solar <- elec.solar$gwh[length(elec.solar$YYYYMMDD)]
 (percent_diff_2018 <- (conf2018/june2017solar - 1) * 100)
 ```
 
-Our ARIMA model seems to provide a believable forecast for the growth of solar energy generation. By June of the year 2022, the model predicts that the energy generation will be between 78341.97 and 203573.46 gigawatt-hours, which is a 200 to 687 percent increase. In 2018, one year out from the end of the data, the model predicts solar generation at 29448.10 to 42313.16 gigawatt-hours, which is a 13.8 to 63.6 percent increase from a year before.
+Small note: I'm using 89% confidence intervals for predictions. Why 89%? I've taken the idea from Prof. Richard McElreath, to underline how arbitrary the choice is. 89 is a prime number, so that may as well be the reason. The point of using these confidence intervals is to quantify our uncertainty about where the future values will be in the context of our model. 
+ 
+As we see above, our ARIMA model seems to provide a believable forecast for the growth of solar energy generation. It predicts a continuation of exponential growth. This should be taken cautiously, because solar energy will likely experience changes in growth as our energy infrastructure changes from fossil fuel sources. In the near term however, I hope the model is accurate. 
+ 
+By June of the year 2022, the model predicts with 89% confidence that the energy generation will be between 78341.97 and 203573.46 gigawatt-hours, which is a 200 to 687 percent increase. In 2018, one year out from the end of the data, the model predicts between 29448.10 to 42313.16 gigawatt-hours, which is a 13.8 to 63.6 percent increase from a year before.
+ 
+Thanks for reading, and thanks to Prof. Kerr of CSU East Bay for introducing me to this stuff.
