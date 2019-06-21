@@ -64,10 +64,10 @@ cleaned_energy_data <- total_energy_data %>%
 head(cleaned_energy_data) # look at structure of total_energy_data dataframe
 
 # examine energy sources
-(cleaned_energy_data <- unique(cleaned_energy_data$Description))
+(cleaned_energy_data_sources <- unique(cleaned_energy_data$Description))
 
 # look at the range of dates
-range(cleaned_energy_data$YYYYMMDD)
+range(cleaned_energy_data$YYYYMMDD, na.rm = TRUE)
 
 # look at the range of values for generation
 range(cleaned_energy_data$Value, na.rm = TRUE)
@@ -94,7 +94,7 @@ range(cleaned_energy_data$Value, na.rm = TRUE)
   xlab("Year") +
   ylab("Generation (teraawatt-hours)") +
   guides(colour = guide_legend(override.aes = list(size = 5))) +
-  gghighlight(Description == "Solar" | Description == "Wind", ) +
+  gghighlight(Description == "Solar") +
   geom_text(
     data = cleaned_energy_data %>% filter(
       YYYYMMDD == dplyr::last(YYYYMMDD),
@@ -118,15 +118,15 @@ If we look carefully, solar energy is one of the smallest sources, shown as a li
 ```{r echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE}
 
 
-(solar_and_wind_plot <- cleaned_energy_data %>% filter(Description %in% c("Solar", "Wind"),
+(solar_plot <- cleaned_energy_data %>% filter(Description %in% c("Solar"),
                                                       is.na(gwh) == FALSE,
                                                       year(YYYYMMDD) >= 1990) %>%
   ggplot() +
   geom_path(
     mapping = aes(
-      x = elec.solarwind$YYYYMMDD,
-      y = elec.solarwind$gwh,
-      color = elec.solarwind$Description
+      x = YYYYMMDD,
+      y = gwh,
+      color = Description
     ),
     na.rm = TRUE,
     size = .72
@@ -137,60 +137,58 @@ If we look carefully, solar energy is one of the smallest sources, shown as a li
   scale_y_continuous(labels = function(x) x/1000) +
   guides(colour = guide_legend(override.aes = list(size = 3))) +
   labs(color = "Source")) +
-  ggthemes::theme_tufte()
+  ggthemes::theme_tufte() +
+  theme(legend.position = "none")
 ```
 
 
-Solar and Wind energy generation are growing exponentially. Wind energy begins its exponential growth in about year 2000, and solar begins its boom roughly in year 2010. This is great, but how much can we expect in 1 year, or 5 years? Maybe an ARIMA model can give a good guess.
+Solar energy generation is growing exponentially. How much will it grow in the near future? Here we will make a forecast with an ARIMA model.
   
   
-First we need to do some transformations on the data. The growth is exponential, which is hard to work with. We can make this easier by applying a logarithmic transformation. This means that we are modeling the growth *rate*, rather than growth directly. Below is a plot of the log transformed solar generation:  
+First we need to do some transformations on the data. ARIMA requires a "weakly stationary" series, which assumes no trend, and constant variance. In the case above, the variance appears to increase with time. We can force a constant variance by applying a logarithmic transformation to generation. This means that we are modeling the natural logarithm of generation, rather than generation itself. Below is a plot of the log transformed solar generation:  
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
-# filter a subset containing only solar generation, starting in 2010
-elec.solar <- filter(
-  elec.solarwind,
-  Description == "Solar",
-  YYYYMMDD >= as.Date("2010-01-01")
-) %>%
-  mutate(loggwh = log(gwh))
 
-# plot generation sources over time
-
-logsolarplot <- ggplot(data = elec.solar) +
+(solar_and_wind_plot <- cleaned_energy_data %>% filter(Description %in% c("Solar"),
+                                                      is.na(gwh) == FALSE,
+                                                      year(YYYYMMDD) >= 2010) %>%
+  ggplot() +
   geom_path(
     mapping = aes(
-      x = elec.solar$YYYYMMDD,
-      y = elec.solar$loggwh,
+      x = YYYYMMDD,
+      y = log(gwh),
       color = Description
     ),
     na.rm = TRUE,
-    show.legend = FALSE,
     size = .72
   ) +
-  ggtitle(label = paste0("U.S. Solar Generation (log transformed) 2010-",year(max(cleaned_energy_data$YYYYMMDD)))) +
+  ggtitle(label = paste0("U.S. Solar Energy Generation 1990-", year(max((cleaned_energy_data$YYYYMMDD))))) +
   xlab("Year") +
-  ylab("Generation log(gigawatt-hours)") +
-  ggthemes::theme_tufte()
+  ylab("Gigawatt-hours (thousands)") +
+  labs(color = "Source")) +
+  ggthemes::theme_tufte() +
+  theme(legend.position = "none")
 
-logsolarplot + labs(color = "Source")
 ```
 
 The result is a nice constant trend that oscillates with the seasons. We can't model this with ARIMA yet, because it has a trend. ARIMA models assume a "stationary process" (the mean and variance do not change over time). Fear not, we can remove the trend with another transformation--differencing, where the previous value is subtracted from each observation. This is reversible so long as we know the first observation. Below is the differenced series:
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-# remove first row to match indices of differenced values
-elec.diffsolar <- elec.solar[-1, ]
 
-# add differenced values
-elec.diffsolar$diffsolar <- diff(elec.solar$loggwh)
+# make solar energy table with logged and differenced-logged generation columns
+cleaned_solar_energy_data <- cleaned_energy_data %>% filter(Description %in% c("Solar"),
+                                                      year(YYYYMMDD) >= 2010) %>%
+  mutate(log_gwh = log(gwh),
+         diff_log_gwh = log_gwh - lag(log_gwh))
 
-difflogsolarplot <- ggplot(data = elec.diffsolar) +
+
+
+(difflogsolarplot <- cleaned_solar_energy_data %>% ggplot() +
   geom_path(
     mapping = aes(
-      x = elec.diffsolar$YYYYMMDD,
-      y = elec.diffsolar$diffsolar,
+      x = YYYYMMDD,
+      y = diff_log_gwh,
       color = Description
     ),
     na.rm = TRUE,
@@ -200,9 +198,8 @@ difflogsolarplot <- ggplot(data = elec.diffsolar) +
   ggtitle(label = "U.S. Solar Generation (differenced log transform) 2010-2017") +
   xlab("Year") +
   ylab("Generation log(gigawatt-hours)") +
-  ggthemes::theme_tufte()
-
-difflogsolarplot + labs(color = "Source")
+  ggthemes::theme_tufte()+
+  theme(legend.position = "none"))
 ```
 
 Now it looks like a stationary process, great for fitting ARIMA. To begin, We need to come up with candidate parameters. We can find those by looking at auto-correlation (ACF) and partial-auto-correlation (PACF) plots. The parameters in question are the auto-regressive (AR), moving average (MA), and seasonal parameters. For details on this, I refer to *Time Series Analysis and its Applications* by Robert H. Shumway and David S. Stoffer.  
@@ -210,18 +207,18 @@ Now it looks like a stationary process, great for fitting ARIMA. To begin, We ne
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # create timeseries object of solar generation to interface with ASTSA functions
-solarts <- ts(elec.solar$gwh, start = c(2010, 1), end = c(2017, 6), frequency = 12)
+solar_ts <- ts(cleaned_solar_energy_data$gwh, start = c(2010, 1), end = c(2017, 6), frequency = 12)
 
 # log and diff transformation of the timeseries object above
-logdiffsolarts <- diff(log(solarts))
+log_diff_solar_ts <- diff(log(solar_ts))
 
 
 # change graphical parameters to show less white space
 invisible((acfpar <- par(mfrow = c(2, 1), mar = c(2, 4, 1, 2), xlab = NA)))
 # autocorrelation function plot
-acf(logdiffsolarts, xlab = NA, main = NA, lag.max = 50)
+acf(log_diff_solar_ts, xlab = NA, main = NA, lag.max = 50)
 # partial autocorrelation plot
-pacf(logdiffsolarts, main = NA, lag.max = 50)
+pacf(log_diff_solar_ts, main = NA, lag.max = 50)
 ```
 
   
@@ -229,7 +226,7 @@ pacf(logdiffsolarts, main = NA, lag.max = 50)
   In the PACF plot, we see strong autocorrelation at the 12 month lag (1.0 on the plot), which cuts off, indicating a seasonal ARIMA model of order P = 1 may be helpful.  Below, we fit an ARIMA model with order P = 1, with differencing D = 0 and d = 1:  
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # create log transformation of solar time series object
-logsolar <- log(solarts)
+logsolar <- log(solar_ts)
 # fit ARIMA model order d = 1, D = 0, P = 1
 fit1 <- sarima(logsolar, 0, 1, 0, P = 1, D = 0, Q = 0, S = 12, details = FALSE)
 ```
@@ -295,21 +292,21 @@ holdforc <- sarima.for(logsolarholdout,
 # build dataframe of forecast with holdout
 holdforcdf <- data.frame(
   prediction = c(
-    rep(NA, length(elec.solar$YYYYMMDD) - 13),
+    rep(NA, length(cleaned_solar_energy_data$YYYYMMDD) - 13),
     exp(holdforc$pred)
   ),
-  date = elec.solar$YYYYMMDD
+  date = cleaned_solar_energy_data$YYYYMMDD
 )
 ```
 
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # plot generation sources over time
-logsolarplot <- ggplot(data = elec.solar, aes(x = holdforcdf$date)) +
+logsolarplot <- ggplot(data = cleaned_solar_energy_data, aes(x = holdforcdf$date)) +
   geom_path(
     mapping = aes(
-      x = elec.solar$YYYYMMDD,
-      y = elec.solar$gwh,
+      x = cleaned_solar_energy_data$YYYYMMDD,
+      y = cleaned_solar_energy_data$gwh,
       color = "Actual"
     ),
     na.rm = TRUE,
@@ -348,7 +345,7 @@ forc5 <- sarima.for(logsolar,
 )
 
 # create vector of corresponding dates for the forecast
-forc5dates <- c(elec.solar$YYYYMMDD, seq(as.Date("2017-07-01"),
+forc5dates <- c(cleaned_solar_energy_data$YYYYMMDD, seq(as.Date("2017-07-01"),
   as.Date("2022-06-01"),
   by = "months"
 ))
@@ -356,20 +353,20 @@ forc5dates <- c(elec.solar$YYYYMMDD, seq(as.Date("2017-07-01"),
 # create dataframe for the 5 year forecast with 95% confidence intervals
 forc5df <- data.frame(
   prediction = c(
-    rep(NA, length(elec.solar$gwh)),
+    rep(NA, length(cleaned_solar_energy_data$gwh)),
     exp(forc5$pred)
   ),
   UL = c(
-    rep(NA, length(elec.solar$gwh)),
+    rep(NA, length(cleaned_solar_energy_data$gwh)),
     exp(forc5$pred + qnorm(0.975) * forc5$se)
   ),
   LL = c(
-    rep(NA, length(elec.solar$gwh)),
+    rep(NA, length(cleaned_solar_energy_data$gwh)),
     exp(forc5$pred - qnorm(0.975) * forc5$se)
   ),
   date = forc5dates,
   gwh = c(
-    elec.solar$gwh,
+    cleaned_solar_energy_data$gwh,
     rep(NA, 60)
   )
 )
@@ -418,7 +415,7 @@ forecast5plot + labs(color = "") + ggthemes::theme_tufte()
 (conf2018 <- c(forc5df$LL[which(forc5df$date == as.Date("2018-06-01"))], forc5df$UL[which(forc5df$date == as.Date("2018-06-01"))]))
 
 # generation in June 2017
-june2017solar <- elec.solar$gwh[length(elec.solar$YYYYMMDD)]
+june2017solar <- cleaned_solar_energy_data$gwh[length(cleaned_solar_energy_data$YYYYMMDD)]
 
 # percent difference in 2022
 (percent_diff_2022 <- (conf2022 / june2017solar - 1) * 100)
